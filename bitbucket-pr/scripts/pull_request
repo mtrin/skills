@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+
+import argparse
+import json
+import requests
+import sys
+
+def create_pull_request(repo, user_credentials, title, close_source_branch, src_branch, target_branch):
+    """
+    Creates a pull request in Bitbucket and prints the self link.
+
+    Args:
+        repo (str): The name of the repository (e.g., 'my-repo').
+        user_credentials (str): User credentials in 'username:password' format.
+        title (str): The title of the pull request.
+        close_source_branch (str): 'true' or 'false' to indicate if the source branch should be closed.
+        src_branch (str): The name of the source branch.
+        target_branch (str): The name of the destination/target branch.
+    """
+    # Split user credentials into username and password
+    try:
+        username, password = user_credentials.split(':', 1)
+    except ValueError:
+        print("Error: User credentials must be in 'username:password' format.", file=sys.stderr)
+        sys.exit(1)
+
+    url = f"https://api.bitbucket.org/2.0/repositories/finityconsulting/{repo}/pullrequests"
+    
+    # Convert close_source_branch string to a boolean for the JSON payload
+    _close_source_branch_bool = close_source_branch.lower() == 'true'
+
+    payload = {
+        "title": title,
+        "close_source_branch": _close_source_branch_bool,
+        "source": {
+            "branch": {
+                "name": src_branch,
+                "sync_strategies": ["merge_commit", "rebase"]
+            }
+        },
+        "destination": {
+            "branch": {
+                "name": target_branch
+            }
+        },
+        "reviewers": [
+            {
+                "uuid": "{674d8ce3-c621-4c80-9c37-968d9cf43f89}"
+            },
+            {
+                "uuid": "{bba96512-cfe9-44d5-8c8a-f4b307b6bec2}"
+            }
+        ]
+    }
+
+    headers = {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+    }
+
+    print(f"Attempting to create pull request to: {url}")
+    print(f"Payload: {json.dumps(payload, indent=2)}")
+
+    try:
+        response = requests.post(url, auth=(username, password), headers=headers, json=payload)
+        response.raise_for_status()  # Raise an exception for HTTP errors (4xx or 5xx)
+
+        response_json = response.json()
+        print("\nPull request created successfully!")
+        
+        # --- MODIFICATION START ---
+        # Extract and print only the 'links.self.href' value
+        self_link = None
+        # Corrected key access from '_links' to 'links'
+        if 'links' in response_json and 'self' in response_json['links'] and \
+           'href' in response_json['links']['self']:
+            self_link = response_json['links']['self']['href']
+            print(f"Pull Request URL: {self_link}")
+        else:
+            print("Could not find 'links.self.href' in the response.", file=sys.stderr)
+            print("Full response for debugging:", file=sys.stderr)
+            print(json.dumps(response_json, indent=2), file=sys.stderr)
+        # --- MODIFICATION END ---
+
+    except requests.exceptions.HTTPError as http_err:
+        print(f"\nHTTP error occurred: {http_err}", file=sys.stderr)
+        print(f"Response status code: {response.status_code}", file=sys.stderr)
+        try:
+            error_details = response.json()
+            print("API Error details:", file=sys.stderr)
+            print(json.dumps(error_details, indent=2), file=sys.stderr)
+        except json.JSONDecodeError:
+            print(f"Could not decode JSON from error response: {response.text}", file=sys.stderr)
+        sys.exit(1)
+    except requests.exceptions.ConnectionError as conn_err:
+        print(f"\nConnection error occurred: {conn_err}", file=sys.stderr)
+        sys.exit(1)
+    except requests.exceptions.Timeout as timeout_err:
+        print(f"\nTimeout error occurred: {timeout_err}", file=sys.stderr)
+        sys.exit(1)
+    except requests.exceptions.RequestException as req_err:
+        print(f"\nAn unexpected request error occurred: {req_err}", file=sys.stderr)
+        sys.exit(1)
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Create a pull request in Bitbucket.")
+    parser.add_argument('--repo', required=True, help="The repository name (e.g., 'my-project').")
+    parser.add_argument('--user', required=True, help="Bitbucket user credentials in 'username:password' format.")
+    parser.add_argument('--title', required=True, help="The title of the pull request.")
+    parser.add_argument('--close-source-branch', default='true', help="Set to 'true' or 'false' to close the source branch after merging. Default is 'true'.")
+    parser.add_argument('--src-branch', required=True, help="The name of the source branch.")
+    parser.add_argument('--target-branch', required=True, help="The name of the destination/target branch (e.g., 'develop' or 'main').")
+
+    args = parser.parse_args()
+
+    create_pull_request(
+        args.repo,
+        args.user,
+        args.title,
+        args.close_source_branch,
+        args.src_branch,
+        args.target_branch
+    )
