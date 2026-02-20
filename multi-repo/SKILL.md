@@ -77,7 +77,6 @@ Print final table of all repos, branches, and PR URLs.
 
 ## Notes
 
-- Always use `git` for git commands
 - Work directly in the source repos under `/home/mano/llm/platform/deployments/` or `/home/mano/llm/platform/apps/` — no worktrees needed for bulk changes
 - If a repo already has the branch, warn the user and ask how to proceed
 - If a change fails to apply cleanly in a repo, skip it, note the failure, and continue with the rest

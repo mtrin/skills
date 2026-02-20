@@ -39,6 +39,7 @@ Worktree source locations:
 - `/home/mano/llm/platform/shared_services_deploy/`
 - `/home/mano/llm/platform/deployments/<repo_name>/` — deploy repos
 - `/home/mano/llm/platform/apps/<repo_name>/` — app source repos
+- `/home/mano/llm/punt-platform/<repo_name>/` — Punt-specific repos (punt_argocd, punt_tf_platform, punt_deploy, punt_api)
 
 ### Step 3: Ask which MCPs are needed
 
@@ -54,13 +55,37 @@ Use `AskUserQuestion` (multi-select):
 mkdir -p ~/llm/stories/<task-id>
 ```
 
-For each selected repo, create worktree from the source repo:
+For each selected repo, create a worktree using `git -C` (never use `cd`):
 
 ```bash
-cd <source-repo-path> && worktree <task-id>
+# 1. Fetch latest
+git -C <source-repo-path> fetch --all
+
+# 2. Ensure develop branch exists locally
+git -C <source-repo-path> switch develop 2>/dev/null || git -C <source-repo-path> checkout -b develop origin/develop
+
+# 3. Create worktree
+git -C <source-repo-path> worktree add ~/llm/stories/<task-id>/<repo-name> -b <task-id> origin/develop
+
+# 4. Set tracking
+git -C ~/llm/stories/<task-id>/<repo-name> config branch.<task-id>.remote origin
+git -C ~/llm/stories/<task-id>/<repo-name> config branch.<task-id>.merge refs/heads/<task-id>
 ```
 
-The `worktree` command is in PATH. It handles branch creation and linking.
+Where `<repo-name>` is the basename of the source repo (e.g. `punt_argocd`, `plt_tf_platform`).
+
+Run all independent repo worktree creations in parallel.
+
+#### Read-only reference copies
+
+If the user needs files from a repo for reference only (no changes needed), offer to extract a read-only copy instead of a full worktree:
+
+```bash
+mkdir -p ~/llm/stories/<task-id>/reference
+git -C <source-repo-path> archive origin/develop <path-within-repo>/ | tar -x -C ~/llm/stories/<task-id>/reference --strip-components=<N>
+```
+
+Where `<N>` strips leading path components to keep the directory structure clean. This avoids creating unnecessary worktrees when only reading is needed.
 
 ### Step 5: Write .mcp.json (if MCPs selected)
 
@@ -79,15 +104,36 @@ Write `~/llm/stories/<task-id>/.mcp.json` with selected MCPs:
 ```
 
 **Azure MCP:**
+
+When Azure MCP is selected, ask which Azure namespaces are relevant using `AskUserQuestion` (multi-select). Suggest namespaces based on the ticket context. Common namespaces:
+
+- **monitor** — Azure Monitor logs and metrics
+- **eventhubs** — EventHub management
+- **storage** — Storage accounts
+- **subscription** — Subscription listing
+- **group** — Resource group listing
+- **keyvault** — Key Vault secrets/keys
+- **aks** — AKS cluster info
+- **compute** — VMs, VMSS, disks
+- **cosmos** — CosmosDB
+- **postgres** — PostgreSQL
+- **servicebus** — Service Bus
+- **extension cli generate** — Generates `az` CLI commands; useful for topics Azure MCP doesn't cover natively (e.g. networking, vnet peering, VPN gateways, resource graph queries)
+
+Full list available via: `npx -y @azure/mcp@latest tools list --namespace-mode --name-only`
+
+Each selected namespace is added as a `--namespace` arg:
 ```json
 {
   "Azure MCP Server": {
     "type": "stdio",
     "command": "npx",
-    "args": ["-y", "@azure/mcp@latest", "server", "start", "--namespace", "monitor"]
+    "args": ["-y", "@azure/mcp@latest", "server", "start", "--namespace", "monitor", "--namespace", "storage"]
   }
 }
 ```
+
+**Note:** Azure MCP has no networking/vnet/peering namespace. For network queries, use `az graph query` via Bash or include `extension cli generate` to help build the right `az` commands.
 
 Combine selected into `{"mcpServers": { ... }}`.
 
@@ -135,7 +181,6 @@ List `~/llm/stories/<task-id>/`. For each git worktree subdirectory (has `.git` 
 | Worktree | Branch | Uncommitted | Unpushed |
 |----------|--------|-------------|----------|
 
-Use `git` for all git commands.
 
 ### Step 2: Handle dirty worktrees
 
@@ -158,11 +203,15 @@ If yes, determine scope:
 
 ### Step 4: Remove worktrees
 
-For each worktree (not skipped), find source repo by reading the `.git` file's `gitdir:` pointer, then:
+For each worktree (not skipped), find the source repo by reading the `.git` file's `gitdir:` pointer, then:
 
 ```bash
-cd <source-repo-path> && git worktree remove ~/llm/stories/<task-id>/<worktree-name>
+# Extract source repo from the worktree's .git file
+# The gitdir line points to <source-repo>/.git/worktrees/<name>
+git -C <source-repo-path> worktree remove ~/llm/stories/<task-id>/<worktree-name>
 ```
+
+Never use `cd` — always use `git -C`.
 
 ### Step 5: Confirm folder removal
 
