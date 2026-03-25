@@ -1,0 +1,57 @@
+#!/bin/bash
+# work-switch: fzf-based ticket context switcher.
+# Usage: source this file or use: eval "$(work-switch)"
+# Must be sourced (not executed) to change the calling shell's directory.
+set -eo pipefail
+
+WORKSPACE="$HOME/workspace"
+SCRIPTS="$(dirname "$0")"
+SETUP="$SCRIPTS/setup-repo.sh"
+
+# Gather ticket dirs
+dirs=()
+for d in "$WORKSPACE"/PLAT-* "$WORKSPACE"/PLATREQ-* "$WORKSPACE"/main; do
+    [ -d "$d" ] && dirs+=("$(basename "$d")")
+done
+
+if [ ${#dirs[@]} -eq 0 ]; then
+    echo "No ticket dirs found in $WORKSPACE"
+    exit 1
+fi
+
+# Current context (from pwd)
+current="$(basename "$PWD" 2>/dev/null)"
+
+# fzf pick
+selected=$(printf '%s\n' "${dirs[@]}" | fzf --prompt="[$current] → " --header="Switch ticket context")
+[ -z "$selected" ] && exit 0
+
+target="$WORKSPACE/$selected"
+
+# If worktrees missing, set them up from manifest
+manifest="$target/manifest.yaml"
+if [ -f "$manifest" ]; then
+    for name in $(yq -r '.repos // {} | keys | .[]' "$manifest" 2>/dev/null); do
+        if [ ! -d "$target/$name" ]; then
+            url=$(yq -r ".repos[\"$name\"].url" "$manifest")
+            branch=$(yq -r ".repos[\"$name\"].branch" "$manifest")
+            source=$(yq -r ".repos[\"$name\"].source // empty" "$manifest")
+            source_arg=""
+            [ -n "$source" ] && source_arg="--source $source"
+            "$SETUP" "$target" "$name" "$url" "$branch" $source_arg
+        fi
+    done
+fi
+
+# Log context switch
+changelog="$WORKSPACE/.changelog"
+if [ -f "$changelog" ]; then
+    echo "$(date -Is) [context-switch] $current → $selected" >> "$changelog"
+fi
+
+# Open ticket dir in VSCode
+CODE="${CODE_CMD:-/mnt/c/Users/mauricio.trindade/AppData/Local/Programs/Microsoft VS Code/bin/code}"
+"$CODE" "$target" &
+
+# Output cd command (caller must eval or source)
+echo "cd $target"

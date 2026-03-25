@@ -1,0 +1,44 @@
+#!/bin/bash
+# ws: show status of all ticket workspaces
+set -eo pipefail
+
+WORKSPACE="$HOME/workspace"
+current="$(basename "$PWD" 2>/dev/null)"
+
+for d in "$WORKSPACE"/PLAT-* "$WORKSPACE"/PLATREQ-* "$WORKSPACE"/main; do
+    [ -d "$d" ] || continue
+    name="$(basename "$d")"
+    marker=" "
+    [ "$name" = "$current" ] && marker="*"
+
+    manifest="$d/manifest.yaml"
+    if [ ! -f "$manifest" ]; then
+        echo "$marker $name: no manifest"
+        continue
+    fi
+
+    echo "$marker $name"
+    for repo in $(yq -r '.repos // {} | keys | .[]' "$manifest"); do
+        dir="$d/$repo"
+        if [ ! -d "$dir" ]; then
+            echo "    $repo: not set up"
+            continue
+        fi
+
+        branch="$(git -C "$dir" branch --show-current 2>/dev/null || echo 'detached')"
+        dirty="$(git -C "$dir" status --porcelain 2>/dev/null)"
+        if [ -n "$dirty" ]; then
+            echo "    $repo ($branch): DIRTY"
+        elif git -C "$dir" rev-parse --verify "@{u}" >/dev/null 2>&1; then
+            unpushed="$(git -C "$dir" log --oneline "@{u}..HEAD" 2>/dev/null)"
+            if [ -n "$unpushed" ]; then
+                count=$(echo "$unpushed" | wc -l)
+                echo "    $repo ($branch): $count unpushed"
+            else
+                echo "    $repo ($branch): clean"
+            fi
+        else
+            echo "    $repo ($branch): no upstream"
+        fi
+    done
+done

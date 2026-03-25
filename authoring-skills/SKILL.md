@@ -1,6 +1,7 @@
 ---
 name: authoring-skills
 description: Creates and structures Claude Code skills with proper YAML frontmatter, progressive disclosure, and file organization. Use when creating new skills, refactoring existing skills, or helping users author skills for Claude Code.
+user-invocable: true
 ---
 
 # Skill Authoring Guide
@@ -97,9 +98,8 @@ Put essential info in SKILL.md, details in separate files:
 [Essential instructions - what 80% of users need]
 
 ## Resources
-- **API Reference**: See [reference.md](reference.md)
+- **Reference**: See [reference.md](reference.md)
 - **Examples**: See [examples.md](examples.md)
-- **Advanced**: See [advanced.md](advanced.md)
 ```
 
 **Keep references ONE level deep.** Claude may partially read deeply nested files.
